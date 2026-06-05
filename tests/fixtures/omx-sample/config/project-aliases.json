@@ -1,0 +1,15 @@
+{
+  "paths": {
+    "/Users/yoseph/TouchBar": "touch",
+    "/work/customer-portal": "customer portal"
+  },
+  "basenames": {
+    "SideQuest": "side quest"
+  },
+  "skills": {
+    "team": "team lane"
+  },
+  "keywords": {
+    "parallel": "parallel lane"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "compact_max_chars": 44,
+  "stale_seconds": 86400,
+  "critical_stale_seconds": 172800,
+  "muxy": {
+    "enabled": false
+  },
+  "project_aliases_file": "config/project-aliases.json"
+}
