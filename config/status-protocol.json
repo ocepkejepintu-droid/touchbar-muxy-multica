@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "fresh_seconds": 120,
+  "stale_seconds": 600,
+  "critical_stale_seconds": 1800,
+  "log_tail_lines": 500,
+  "compact_log_tail_bytes": 65536,
+  "compact_log_file_limit": 6,
+  "compact_max_chars": 80,
+  "spinner_cadence_seconds": 2,
+  "spinner_frames": ["◐", "◓", "◑", "◒"],
+  "operator_summary": {
+    "blocking_attention_kinds": ["workflow_stalled"],
+    "inferred_attention_kinds": ["workflow_stalled", "tmux_invalid_config", "notify_unhealthy", "authority_stale", "muxy_waiting_for_permission"]
+  },
+  "labels": {
+    "repo_default": "touch",
+    "ultrawork": "ultra",
+    "team": "team",
+    "ralph": "ralph"
+  },
+  "attention": {
+    "tmux_placeholder_target": "replace-with-tmux-pane-id",
+    "authority_heartbeat_stale_seconds": 600,
+    "notify_tick_stale_seconds": 600
+  },
+  "multica": {
+    "enabled": false,
+    "reserved": true,
+    "note": "Reserved for future optional multica status-file support; not collected by agentmax_status.py yet.",
+    "status_file": "~/Library/Caches/multica-touchbar-status.txt",
+    "cli_command": null
+  },
+  "muxy": {
+    "enabled": true,
+    "tmux_command": "tmux",
+    "command_timeout_seconds": 1.5,
+    "waiting_keywords": ["action required", "permission", "approve", "approval", "confirm", "waiting for input"],
+    "done_keywords": ["press enter to close", "exited with code", "completed", "finished", "done"],
+    "session_prefixes": ["omx-"]
+  },
+  "project_aliases_file": "config/project-aliases.json",
+  "logging": {
+    "enabled": false,
+    "path": ".omx/logs/agentmax-status.jsonl",
+    "max_bytes": 262144
+  }
+}
