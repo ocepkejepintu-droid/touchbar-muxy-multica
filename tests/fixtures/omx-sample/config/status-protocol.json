@@ -3,6 +3,9 @@
   "compact_max_chars": 44,
   "stale_seconds": 86400,
   "critical_stale_seconds": 172800,
+  "vibe_island": {
+    "enabled": false
+  },
   "muxy": {
     "enabled": false
   },

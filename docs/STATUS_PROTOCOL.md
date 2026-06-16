@@ -1,26 +1,32 @@
 # Agentmax status protocol
 
-The compact protocol is designed for a BetterTouchTool shell-script widget refreshing every 2 seconds. It answers the operator question: which muxy/terminal needs permission, what is done, how many terminals are still open, who is working, who is idle/stale, and what else needs attention.
+The compact protocol is designed for a BetterTouchTool shell-script widget refreshing every 2 seconds. It answers the operator question: which Vibe Island agent is active, whether a permission needs attention, and what OMX/Muxy fallback state exists when Vibe Island has no live sessions.
 
 ## Compact line
 
-Compact status lines start with `MUXY` for the muxy notification center or `OMX` for the operator summary fallback, and are capped by `config/status-protocol.json` (`compact_max_chars`, currently `80`). The same config controls freshness thresholds, spinner cadence, label aliases, and which attention kinds count as blocking vs inferred attention under `operator_summary`.
+Compact status lines start with `VI` for Vibe Island sessions, then fall back to legacy `MUXY` or `OMX`, and are capped by `config/status-protocol.json` (`compact_max_chars`, currently `80`). The same config controls freshness thresholds, spinner cadence, label aliases, and which attention kinds count as blocking vs inferred attention under `operator_summary`.
 
 Examples:
 
 ```text
+VI Claude covers · Read
+VI ! Claude covers
+VI · 2 agents covers,agent
 MUXY C1 F0 O3 scorio
-MUXY C0 F0 O2 scorio
-MUXY C0 F1 O0 scorio
-OMX ◒ W1 I0 A1 now:touch wait:tmux
-OMX · W0 I1 B1 now:- wait:touch,tmux
-OMX ✓ W0 I0 A0 now:- wait:- done:touch 2h
-OMX ✓ W0 I0 A0 now:- wait:-
+OMX · W0 I1 B1 touch,tmux
+VI !err
 OMX !err
 MUXY !err
 ```
 
-Muxy notification-center fields take priority when live muxy/OMX tmux sessions are visible:
+Vibe Island fields take priority when live sessions are visible in `~/Library/Application Support/vibe-island/session-terminals.json`:
+
+- `VI {agent} {project} · {tool}`: one active session with current tool
+- `VI ! {agent} {project}`: recent permission request detected in the Vibe Island log
+- `VI · {n} agents {labels}`: multiple active sessions
+- failure state: `VI !err`
+
+Legacy muxy notification-center fields are used only when `muxy.enabled` is true and live muxy/OMX tmux sessions are visible:
 
 - `C`: confirmation-needed count; panes waiting for action, permission, approval, or input
 - `F`: finished count; panes that have completed successfully (strict success-only)
@@ -39,7 +45,7 @@ When muxy/tmux state is unavailable, fields fall back to the older OMX operator 
 - `wait:<label>`: inferred waiting/stalled/attention labels, or `-`
 - `done:<project> <age>`: latest finished run when there is no active work or attention to show
 
-The BTT wrapper adds one extra failure-only fallback: `MUXY !err`. The collector itself does not use `MUXY !err` as a truncation fallback; very small `compact_max_chars` budgets return the shortest truthful `MUXY...` or `OMX...` prefix that fits.
+The BTT wrapper adds one extra failure-only fallback: `VI !err`. The collector itself does not use `VI !err` as a truncation fallback; very small `compact_max_chars` budgets return the shortest truthful `VI...`, `MUXY...`, or `OMX...` prefix that fits.
 
 ## Spinner and freshness
 

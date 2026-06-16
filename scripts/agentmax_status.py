@@ -54,8 +54,16 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "status_file": "~/Library/Caches/multica-touchbar-status.txt",
         "cli_command": None,
     },
-    "muxy": {
+    "vibe_island": {
         "enabled": True,
+        "session_file": "~/Library/Application Support/vibe-island/session-terminals.json",
+        "log_file": "~/Library/Logs/VibeIsland/vibe-island.log",
+        "permission_log_seconds": 120,
+        "stale_seconds": 86400,
+        "active_statuses": ["processing", "working", "active", "running"],
+    },
+    "muxy": {
+        "enabled": False,
         "tmux_command": "tmux",
         "command_timeout_seconds": 1.5,
         "waiting_keywords": ["action required", "permission", "approve", "approval", "confirm", "waiting for input"],
@@ -76,6 +84,36 @@ CANCELLED_PHASES = {"cancel", "cancelled", "canceled"}
 SUCCESS_OUTCOMES = {"finish", "finished", "success", "succeeded", "complete", "completed", "done", "ok"}
 FAILED_OUTCOMES = {"fail", "failed", "failure", "error", "errored"}
 CANCELLED_OUTCOMES = {"cancel", "cancelled", "canceled", "aborted", "abort"}
+CF_ABSOLUTE_TIME_OFFSET = 978307200
+VIBE_AGENT_LABELS = {
+    "claude": "Claude",
+    "codex": "Codex",
+    "gemini": "Gemini",
+    "cursor": "Cursor",
+    "opencode": "OpenCode",
+    "droid": "Droid",
+    "qoder": "Qoder",
+    "qwen": "Qwen",
+    "kimi": "Kimi",
+    "deepseek": "DeepSeek",
+    "copilot": "Copilot",
+    "codebuddy": "CodeBuddy",
+    "kiro": "Kiro",
+    "hermes": "Hermes",
+    "amp": "Amp",
+}
+GENERIC_PROJECT_NAMES = {
+    "",
+    "users",
+    "home",
+    "tmp",
+    "var",
+    "private",
+    "volumes",
+    "documents",
+    "desktop",
+    "downloads",
+}
 TIMESTAMP_KEYS = (
     "timestamp",
     "ts",
@@ -440,6 +478,228 @@ def muxy_session_matches(session_name: str, prefixes: List[str]) -> bool:
     if not prefixes:
         prefixes = ["omx-"]
     return any(session_name.startswith(prefix) for prefix in prefixes)
+
+
+def cf_absolute_to_unix(value: Any) -> Optional[float]:
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        return None
+    if seconds <= 0:
+        return None
+    return seconds + CF_ABSOLUTE_TIME_OFFSET
+
+
+def vibe_agent_label(source: Any) -> str:
+    text = str(source or "agent").strip().lower()
+    return VIBE_AGENT_LABELS.get(text, text[:1].upper() + text[1:] if text else "Agent")
+
+
+def vibe_project_label(session: Dict[str, Any]) -> str:
+    cwd = str(session.get("cwd") or "").strip()
+    if cwd:
+        try:
+            cwd_path = Path(cwd).expanduser().resolve()
+            home = Path.home().resolve()
+            basename = (cwd_path.name or "").strip().lower()
+            parent = (cwd_path.parent.name or "").strip().lower()
+            if cwd_path != home and basename and basename not in GENERIC_PROJECT_NAMES:
+                return slug(basename, fallback="agent")
+            if cwd_path != home and parent and parent not in GENERIC_PROJECT_NAMES:
+                return slug(parent, fallback="agent")
+        except Exception:  # noqa: BLE001
+            pass
+    message = compact_text(session.get("firstUserMessage"), 80)
+    if message:
+        words = re.findall(r"[A-Za-z0-9][A-Za-z0-9_-]*", message)
+        if words:
+            return slug("-".join(words[:2]), fallback="agent")
+    return "agent"
+
+
+def vibe_session_activity_at(session: Dict[str, Any]) -> Optional[datetime]:
+    return parse_time(cf_absolute_to_unix(session.get("lastActivityAt")))
+
+
+def vibe_session_is_active(session: Dict[str, Any], now: datetime, stale_seconds: int) -> bool:
+    status = str(session.get("status") or "").strip().lower()
+    inactive_statuses = {"ended", "complete", "completed", "done", "finished", "idle", "stopped"}
+    if status in inactive_statuses:
+        return False
+    active_statuses = {"processing", "working", "active", "running"}
+    activity_at = vibe_session_activity_at(session)
+    freshness = age_seconds(now, activity_at)
+    if status in active_statuses:
+        return freshness is None or freshness <= stale_seconds
+    return freshness is not None and freshness <= max(120, stale_seconds // 4)
+
+
+def read_vibe_island_log_tail(path: Path, max_bytes: int = 65536) -> List[str]:
+    if not path.exists():
+        return []
+    try:
+        with path.open("rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            start = max(0, size - max_bytes)
+            handle.seek(start)
+            if start > 0:
+                handle.readline()
+            data = handle.read()
+        return data.decode("utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+
+
+def parse_vibe_log_timestamp(line: str) -> Optional[datetime]:
+    match = re.search(r'"t":"([^"]+)"', line)
+    if not match:
+        return None
+    return parse_time(match.group(1))
+
+
+def collect_vibe_island_permissions(
+    cfg: Dict[str, Any],
+    now: datetime,
+    diag: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    vi_cfg = cfg.get("vibe_island") if isinstance(cfg.get("vibe_island"), dict) else {}
+    log_path = Path(str(vi_cfg.get("log_file") or "~/Library/Logs/VibeIsland/vibe-island.log")).expanduser()
+    window_seconds = int(vi_cfg.get("permission_log_seconds", 120) or 120)
+    pending: Dict[str, Dict[str, Any]] = {}
+    for line in read_vibe_island_log_tail(log_path):
+        lowered = line.lower()
+        if "permissionrequest" not in lowered and "permission-enter" not in lowered:
+            continue
+        event_at = parse_vibe_log_timestamp(line)
+        if not event_at or age_seconds(now, event_at) is None or age_seconds(now, event_at) > window_seconds:
+            continue
+        session_match = re.search(r"session=([0-9a-f-]{8,})", line, flags=re.IGNORECASE)
+        session_id = session_match.group(1) if session_match else None
+        tool_match = re.search(r"tool=([A-Za-z0-9_./-]+)", line)
+        project_match = re.search(r"target=([A-Za-z0-9_./-]+)", line)
+        source_match = re.search(r"source=([A-Za-z0-9_-]+)", line)
+        key = session_id or f"perm-{len(pending)}"
+        pending[key] = {
+            "session_id": session_id,
+            "agent": vibe_agent_label(source_match.group(1) if source_match else "agent"),
+            "tool": compact_text(tool_match.group(1) if tool_match else None, 24),
+            "project": slug(project_match.group(1) if project_match else "perm", fallback="perm"),
+            "event_at": iso(event_at),
+            "age": fmt_age(age_seconds(now, event_at)),
+        }
+    return list(pending.values())
+
+
+def collect_vibe_island(
+    cfg: Dict[str, Any],
+    now: datetime,
+    diag: Dict[str, Any],
+) -> Dict[str, Any]:
+    vi_cfg = cfg.get("vibe_island") if isinstance(cfg.get("vibe_island"), dict) else {}
+    if vi_cfg.get("enabled") is False:
+        return {"enabled": False, "available": False, "reason": "disabled", "sessions": [], "counts": {}}
+
+    session_path = Path(str(vi_cfg.get("session_file") or "~/Library/Application Support/vibe-island/session-terminals.json")).expanduser()
+    stale_seconds = int(vi_cfg.get("stale_seconds", 300) or 300)
+    if not session_path.exists():
+        diag["decisions"].append("vibe island session file missing; falling back")
+        return {
+            "enabled": True,
+            "available": False,
+            "empty_runtime": True,
+            "reason": "session file missing",
+            "session_file": str(session_path),
+            "sessions": [],
+            "permissions": [],
+            "counts": {"active": 0, "permissions": 0},
+            "compact_parts": {"project_labels": [], "agent_labels": []},
+        }
+
+    try:
+        with session_path.open("r", encoding="utf-8") as handle:
+            raw = json.load(handle)
+    except Exception as exc:  # noqa: BLE001
+        diag["json_errors"].append({"path": str(session_path), "error": str(exc)})
+        return {
+            "enabled": True,
+            "available": False,
+            "reason": compact_text(exc, 120),
+            "session_file": str(session_path),
+            "sessions": [],
+            "permissions": [],
+            "counts": {"active": 0, "permissions": 0},
+            "compact_parts": {"project_labels": [], "agent_labels": []},
+        }
+
+    if not isinstance(raw, dict):
+        return {
+            "enabled": True,
+            "available": False,
+            "reason": "invalid session file",
+            "session_file": str(session_path),
+            "sessions": [],
+            "permissions": [],
+            "counts": {"active": 0, "permissions": 0},
+            "compact_parts": {"project_labels": [], "agent_labels": []},
+        }
+
+    sessions: List[Dict[str, Any]] = []
+    for session_id, entry in raw.items():
+        if not isinstance(entry, dict):
+            continue
+        activity_at = vibe_session_activity_at(entry)
+        project = vibe_project_label(entry)
+        agent = vibe_agent_label(entry.get("source"))
+        terminal = compact_text(entry.get("termProgram"), 16) or None
+        tool = compact_text(entry.get("currentTool") or entry.get("toolTarget"), 24) or None
+        active = vibe_session_is_active(entry, now, stale_seconds)
+        sessions.append(
+            {
+                "session_id": str(session_id),
+                "short_session_id": str(session_id)[:8],
+                "agent": agent,
+                "project": project,
+                "terminal": terminal,
+                "tool": tool,
+                "status": entry.get("status"),
+                "active": active,
+                "cwd": entry.get("cwd"),
+                "last_activity_at": iso(activity_at),
+                "age": fmt_age(age_seconds(now, activity_at)),
+                "freshness_seconds": age_seconds(now, activity_at),
+            }
+        )
+
+    sessions.sort(
+        key=lambda item: (
+            0 if item.get("active") else 1,
+            -(item.get("freshness_seconds") if item.get("freshness_seconds") is not None else 10**9),
+        ),
+    )
+    active_sessions = [session for session in sessions if session.get("active")]
+    permissions = collect_vibe_island_permissions(cfg, now, diag)
+    urgent = permissions[0] if permissions else (active_sessions[0] if active_sessions else None)
+
+    return {
+        "enabled": True,
+        "available": True,
+        "session_file": str(session_path),
+        "sessions": sessions,
+        "active_sessions": active_sessions,
+        "permissions": permissions,
+        "urgent": urgent,
+        "urgent_kind": "permission" if permissions else ("active" if active_sessions else None),
+        "counts": {
+            "active": len(active_sessions),
+            "permissions": len(permissions),
+            "tracked": len(sessions),
+        },
+        "compact_parts": {
+            "project_labels": list(dict.fromkeys(session["project"] for session in active_sessions)),
+            "agent_labels": list(dict.fromkeys(session["agent"] for session in active_sessions)),
+        },
+    }
 
 
 def parse_tmux_rows(output: str, width: int) -> List[List[str]]:
@@ -1674,9 +1934,21 @@ def collect_snapshot(root: Path, *, compact: bool = False) -> Dict[str, Any]:
         pane_id = run.get("tmux_pane_id")
         if pane_id and run.get("completed"):
             pane_success_map[str(pane_id)] = True
+    vibe_island_summary = collect_vibe_island(cfg, now, diag)
     muxy_summary = collect_muxy_runtime(root, cfg, now, diag, pane_success_map)
     attentions.extend(tmux_attention)
     attentions.extend(notify_attention)
+    vibe_permissions = vibe_island_summary.get("permissions") if isinstance(vibe_island_summary.get("permissions"), list) else []
+    for permission in vibe_permissions[:3]:
+        attentions.append(
+            attention_item(
+                "vibe_island_permission",
+                "critical",
+                str(permission.get("project") or "agent"),
+                f"{permission.get('agent') or 'agent'} permission: {permission.get('tool') or 'approval needed'}",
+                str(vibe_island_summary.get("session_file") or "vibe-island"),
+            )
+        )
     muxy_waiting = muxy_summary.get("waiting") if isinstance(muxy_summary.get("waiting"), list) else []
     for pane in muxy_waiting[:5]:
         attentions.append(
@@ -1734,6 +2006,7 @@ def collect_snapshot(root: Path, *, compact: bool = False) -> Dict[str, Any]:
         "notify_health": notify_summary,
         "tmux_health": tmux_summary,
         "muxy_notification_center": muxy_summary,
+        "vibe_island": vibe_island_summary,
         "metrics": summarize_metrics(metrics_json, now),
         "team_nudge": summarize_team_nudge(team_nudge_json),
         "global_skill": {
@@ -1814,6 +2087,67 @@ def spinner(cfg: Dict[str, Any]) -> str:
     return frames[int(time.time() / cadence) % len(frames)]
 
 
+def format_vibe_island_compact(snapshot: Dict[str, Any], max_chars: int) -> Optional[str]:
+    vibe = snapshot.get("vibe_island") if isinstance(snapshot.get("vibe_island"), dict) else {}
+    if not vibe or vibe.get("enabled") is False:
+        return None
+    if not vibe.get("available"):
+        if vibe.get("empty_runtime"):
+            return None
+        return "VI !err"
+
+    counts = vibe.get("counts") if isinstance(vibe.get("counts"), dict) else {}
+    permissions = vibe.get("permissions") if isinstance(vibe.get("permissions"), list) else []
+    active_sessions = vibe.get("active_sessions") if isinstance(vibe.get("active_sessions"), list) else []
+    active_count = int(counts.get("active") or 0)
+    permission_count = int(counts.get("permissions") or 0)
+
+    if permission_count == 0 and active_count == 0:
+        return None
+
+    urgent = vibe.get("urgent") if isinstance(vibe.get("urgent"), dict) else None
+    if permission_count > 0 and isinstance(urgent, dict):
+        project = urgent.get("project") or "perm"
+        agent = urgent.get("agent") or "Agent"
+        candidates = [
+            f"VI ! {agent} {project}",
+            f"VI ! {project}",
+            "VI ! perm",
+        ]
+        for candidate in candidates:
+            if len(candidate) <= max_chars:
+                return candidate
+        return truncate_compact(candidates[-1], max_chars)
+
+    if active_count == 1 and isinstance(urgent, dict):
+        agent = urgent.get("agent") or "Agent"
+        project = urgent.get("project") or "agent"
+        tool = urgent.get("tool")
+        age = urgent.get("age")
+        candidates = [
+            f"VI {agent} {project} · {tool}" if tool else None,
+            f"VI {agent} {project} {age}" if age else None,
+            f"VI {agent} {project}",
+            f"VI {project}",
+        ]
+        for candidate in candidates:
+            if candidate and len(candidate) <= max_chars:
+                return candidate
+
+    parts = vibe.get("compact_parts") if isinstance(vibe.get("compact_parts"), dict) else {}
+    labels = parts.get("project_labels") if isinstance(parts.get("project_labels"), list) else []
+    label_text = compact_label_list(labels, limit=2)
+    candidates = [
+        f"VI · {active_count} agents {label_text}" if label_text != "-" else None,
+        f"VI · {active_count} agents",
+        "VI · agents",
+    ]
+    for candidate in candidates:
+        if candidate and len(candidate) <= max_chars:
+            return candidate
+    return truncate_compact(f"VI · {active_count}", max_chars)
+
+
 def format_muxy_compact(snapshot: Dict[str, Any], max_chars: int) -> Optional[str]:
     muxy = snapshot.get("muxy_notification_center") if isinstance(snapshot.get("muxy_notification_center"), dict) else {}
     if not muxy or muxy.get("enabled") is False:
@@ -1867,6 +2201,9 @@ def format_muxy_compact(snapshot: Dict[str, Any], max_chars: int) -> Optional[st
 def format_compact(snapshot: Dict[str, Any]) -> str:
     cfg = snapshot.get("config", DEFAULT_CONFIG)
     max_chars = int(cfg.get("compact_max_chars", 80) or 80)
+    vibe_compact = format_vibe_island_compact(snapshot, max_chars)
+    if vibe_compact:
+        return vibe_compact
     muxy_compact = format_muxy_compact(snapshot, max_chars)
     if muxy_compact:
         return muxy_compact
@@ -1995,6 +2332,35 @@ def format_detail(snapshot: Dict[str, Any], *, debug: bool = False) -> str:
     )
     lines.append("")
 
+    vibe = snapshot.get("vibe_island") if isinstance(snapshot.get("vibe_island"), dict) else {}
+    vibe_counts = vibe.get("counts") if isinstance(vibe.get("counts"), dict) else {}
+    lines.append("Vibe Island:")
+    lines.append(
+        f"  available={vibe.get('available')} active={vibe_counts.get('active', 0)} "
+        f"permissions={vibe_counts.get('permissions', 0)} tracked={vibe_counts.get('tracked', 0)}"
+    )
+    active_sessions = vibe.get("active_sessions") if isinstance(vibe.get("active_sessions"), list) else []
+    if active_sessions:
+        lines.append("  active sessions:")
+        for session in active_sessions[:5]:
+            lines.append(
+                f"    - {session.get('agent')} {session.get('project')} "
+                f"tool={session.get('tool') or '-'} age={session.get('age') or '?'}"
+            )
+    else:
+        lines.append("  active sessions: none")
+    permission_sessions = vibe.get("permissions") if isinstance(vibe.get("permissions"), list) else []
+    if permission_sessions:
+        lines.append("  permissions:")
+        for permission in permission_sessions[:3]:
+            lines.append(
+                f"    - {permission.get('agent')} {permission.get('project')} "
+                f"tool={permission.get('tool') or '-'} age={permission.get('age') or '?'}"
+            )
+    else:
+        lines.append("  permissions: none")
+    lines.append("")
+
     muxy = snapshot.get("muxy_notification_center") if isinstance(snapshot.get("muxy_notification_center"), dict) else {}
     muxy_counts = muxy.get("counts") if isinstance(muxy.get("counts"), dict) else {}
     lines.append("Muxy notification center:")
@@ -2072,8 +2438,8 @@ def smoke(root: Path) -> Tuple[int, str]:
     snapshot = collect_snapshot(root, compact=True)
     compact = str(snapshot.get("compact") or "")
     max_chars = int(snapshot.get("config", {}).get("compact_max_chars", 80) or 80)
-    if not (compact.startswith("OMX") or compact.startswith("MUXY")):
-        return 2, f"FAIL compact does not start with OMX or MUXY: {compact!r}"
+    if not (compact.startswith("OMX") or compact.startswith("MUXY") or compact.startswith("VI")):
+        return 2, f"FAIL compact does not start with VI, OMX, or MUXY: {compact!r}"
     if len(compact) > max_chars:
         return 2, f"FAIL compact too long: {len(compact)} > {max_chars}"
     try:
@@ -2119,7 +2485,7 @@ def fallback_snapshot(root: Path, exc: Exception) -> Dict[str, Any]:
         "schema_version": 1,
         "generated_at": iso(utc_now()),
         "root": str(root.expanduser()),
-        "compact": "MUXY !err",
+        "compact": "VI !err",
         "error": {"type": type(exc).__name__, "message": compact_text(exc, 240)},
     }
 
@@ -2153,10 +2519,10 @@ def main(argv: List[str]) -> int:
         try:
             snapshot = collect_snapshot(root, compact=True)
             maybe_log_snapshot(snapshot)
-            print(str(snapshot.get("compact") or "MUXY !err"))
+            print(str(snapshot.get("compact") or "VI !err"))
             return 0
         except Exception:  # noqa: BLE001 - compact is BTT-facing: no stack traces.
-            print("MUXY !err")
+            print("VI !err")
             return 0
 
     try:

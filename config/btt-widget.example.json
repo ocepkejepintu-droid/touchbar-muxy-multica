@@ -1,7 +1,7 @@
 {
   "note": "Reference only. BetterTouchTool import formats vary; manual setup in docs/BTT_SETUP.md is canonical. Nothing in this file automatically mutates live BTT settings.",
   "widget": {
-    "name": "Muxy Notification Center",
+    "name": "Vibe Island Touch Bar",
     "type": "touch_bar_shell_script_widget",
     "refresh_interval_seconds": 2,
     "script": "/Users/yoseph/TouchBar/scripts/btt_agentmax_widget.sh",
@@ -17,17 +17,25 @@
     },
     "tap_action": {
       "kind": "shell_script",
-      "description": "Open the Muxy app via the tap helper. This is the primary tap action.",
-      "script": "/Users/yoseph/TouchBar/scripts/btt_muxy_tap.sh"
+      "description": "Open Vibe Island via the tap helper. This is the primary tap action.",
+      "script": "/Users/yoseph/TouchBar/scripts/btt_vibe_island_tap.sh"
     },
     "debug_tap_action_alternative": {
       "kind": "apple_script",
-      "description": "Diagnostic only. Open muxy notification-center debug status in Terminal. Not the primary tap action.",
-      "script": "tell application \"Terminal\" to do script \"cd /Users/yoseph/TouchBar \u0026\u0026 python3 scripts/agentmax_status.py --debug\"\nactivate application \"Terminal\""
+      "description": "Diagnostic only. Open Vibe Island status debug in Terminal. Not the primary tap action.",
+      "script": "tell application \"Terminal\" to do script \"cd /Users/yoseph/TouchBar && python3 scripts/agentmax_status.py --debug --root /Users/yoseph/TouchBar\"\nactivate application \"Terminal\""
     }
   },
-  "multica_widget_reference": {
-    "note": "If you also have a Multica widget, use this tap action.",
+  "legacy_muxy_widget_reference": {
+    "note": "Optional legacy muxy notification-center tap action.",
+    "tap_action": {
+      "kind": "shell_script",
+      "description": "Open the Muxy app via the tap helper.",
+      "script": "/Users/yoseph/TouchBar/scripts/btt_muxy_tap.sh"
+    }
+  },
+  "legacy_multica_widget_reference": {
+    "note": "Optional legacy Multica tap action if you still use Multica.",
     "tap_action": {
       "kind": "shell_script",
       "description": "Open the Multica app via the tap helper.",

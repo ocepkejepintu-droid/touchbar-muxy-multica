@@ -31,8 +31,16 @@
     "status_file": "~/Library/Caches/multica-touchbar-status.txt",
     "cli_command": null
   },
-  "muxy": {
+  "vibe_island": {
     "enabled": true,
+    "session_file": "~/Library/Application Support/vibe-island/session-terminals.json",
+    "log_file": "~/Library/Logs/VibeIsland/vibe-island.log",
+    "permission_log_seconds": 120,
+    "stale_seconds": 86400,
+    "active_statuses": ["processing", "working", "active", "running"]
+  },
+  "muxy": {
+    "enabled": false,
     "tmux_command": "tmux",
     "command_timeout_seconds": 1.5,
     "waiting_keywords": ["action required", "permission", "approve", "approval", "confirm", "waiting for input"],

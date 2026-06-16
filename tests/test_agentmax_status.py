@@ -1037,6 +1037,119 @@ class AgentmaxStatusTests(unittest.TestCase):
         )
         self.assertTrue(snapshot["compact"].startswith("OMX"), snapshot["compact"])
 
+    def test_vibe_project_label_prefers_cwd_basename(self):
+        label = agentmax_status.vibe_project_label(
+            {
+                "cwd": "/Users/yoseph/rsvp-reader/covers",
+                "firstUserMessage": "install this https://github.com/example/repo",
+            }
+        )
+        self.assertEqual(label, "covers")
+
+    def test_vibe_project_label_uses_parent_for_home_cwd(self):
+        label = agentmax_status.vibe_project_label(
+            {
+                "cwd": "/Users/yoseph",
+                "firstUserMessage": "fix auth bug in middleware",
+            }
+        )
+        self.assertEqual(label, "fix-auth")
+
+    def test_vibe_island_collects_active_sessions(self):
+        now = datetime(2026, 6, 16, 16, 0, tzinfo=timezone.utc)
+        unix_now = now.timestamp()
+        cf_now = unix_now - agentmax_status.CF_ABSOLUTE_TIME_OFFSET
+        with tempfile.TemporaryDirectory() as tmp:
+            session_file = Path(tmp) / "session-terminals.json"
+            session_file.write_text(
+                json.dumps(
+                    {
+                        "83897b76-041d-4db6-8f9f-b70ec9ebfb8e": {
+                            "source": "claude",
+                            "status": "processing",
+                            "cwd": "/Users/yoseph/rsvp-reader/covers",
+                            "currentTool": "Read",
+                            "lastActivityAt": cf_now,
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            cfg = agentmax_status.deep_merge(
+                agentmax_status.DEFAULT_CONFIG,
+                {
+                    "vibe_island": {
+                        "enabled": True,
+                        "session_file": str(session_file),
+                        "log_file": str(Path(tmp) / "missing.log"),
+                        "stale_seconds": 300,
+                    }
+                },
+            )
+            summary = agentmax_status.collect_vibe_island(cfg, now, agentmax_status.diag_init())
+
+        self.assertTrue(summary["available"])
+        self.assertEqual(summary["counts"]["active"], 1)
+        self.assertEqual(summary["active_sessions"][0]["agent"], "Claude")
+        self.assertEqual(summary["active_sessions"][0]["project"], "covers")
+        self.assertEqual(summary["active_sessions"][0]["tool"], "Read")
+
+    def test_compact_prefers_vibe_island_over_muxy(self):
+        snapshot = {
+            "config": dict(agentmax_status.DEFAULT_CONFIG, compact_max_chars=80),
+            "operator_summary": {"counts": {"working": 0, "idle_stale": 0, "attention": 0, "blocking": 0}},
+            "vibe_island": {
+                "enabled": True,
+                "available": True,
+                "counts": {"active": 1, "permissions": 0},
+                "active_sessions": [
+                    {
+                        "agent": "Claude",
+                        "project": "covers",
+                        "tool": "Read",
+                        "age": "12s",
+                    }
+                ],
+                "permissions": [],
+                "urgent": {
+                    "agent": "Claude",
+                    "project": "covers",
+                    "tool": "Read",
+                    "age": "12s",
+                },
+                "compact_parts": {"project_labels": ["covers"], "agent_labels": ["Claude"]},
+            },
+            "muxy_notification_center": {
+                "enabled": True,
+                "available": True,
+                "counts": {"waiting": 1, "done": 0, "open_panes": 3, "open_sessions": 1},
+                "compact_parts": {"waiting_labels": ["scorio"], "project_labels": ["scorio"]},
+            },
+        }
+
+        compact = agentmax_status.format_compact(snapshot)
+
+        self.assertEqual(compact, "VI Claude covers · Read")
+
+    def test_vibe_island_permission_compact(self):
+        snapshot = {
+            "config": dict(agentmax_status.DEFAULT_CONFIG, compact_max_chars=80),
+            "operator_summary": {"counts": {"working": 0, "idle_stale": 0, "attention": 0, "blocking": 0}},
+            "vibe_island": {
+                "enabled": True,
+                "available": True,
+                "counts": {"active": 1, "permissions": 1},
+                "active_sessions": [{"agent": "Claude", "project": "covers", "tool": "Read", "age": "12s"}],
+                "permissions": [{"agent": "Claude", "project": "covers", "tool": "Bash", "age": "3s"}],
+                "urgent": {"agent": "Claude", "project": "covers", "tool": "Bash", "age": "3s"},
+                "compact_parts": {"project_labels": ["covers"], "agent_labels": ["Claude"]},
+            },
+        }
+
+        compact = agentmax_status.format_compact(snapshot)
+
+        self.assertEqual(compact, "VI ! Claude covers")
+
 
 if __name__ == "__main__":
     unittest.main()

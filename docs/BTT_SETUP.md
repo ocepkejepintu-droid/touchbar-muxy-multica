@@ -17,14 +17,14 @@ From `/Users/yoseph/TouchBar`, run:
 Create a BetterTouchTool Touch Bar shell script widget:
 
 - Type: `Shell Script / Task Widget` for Touch Bar
-- Name: `Muxy Notification Center`
+- Name: `Vibe Island Touch Bar`
 - Refresh interval: `2 seconds`
 - Width: `240 px` recommended; `210–280 px` works well
 - Script path:
   ```sh
   /Users/yoseph/TouchBar/scripts/btt_agentmax_widget.sh
   ```
-- Label/font/color: user preference; keep enough width for one compact `OMX ...` line
+- Label/font/color: user preference; keep enough width for one compact `VI ...` line
 
 The wrapper calls:
 
@@ -35,37 +35,36 @@ python3 /Users/yoseph/TouchBar/scripts/agentmax_status.py --compact --root /User
 If the collector fails or returns no output, the widget prints the safe fallback:
 
 ```text
-MUXY !err
+VI !err
 ```
-
-The collector does not print `MUXY !err` for ordinary compact truncation; that
-fallback is reserved for actual wrapper/collector failures. The compact BTT path
-uses a bounded JSONL file set plus bounded byte-tail reads so the 2-second
-refresh does not scan unbounded historical logs.
 
 ## Tap action
 
 Tapping the widget does nothing unless you assign a tap action in BetterTouchTool. The tap action is not configured automatically; you must set it manually in the BTT widget settings.
 
-### Muxy widget tap action
+### Primary tap action (Vibe Island)
 
-Assign a shell-script tap action that opens the Muxy app:
+Assign a shell-script tap action that opens Vibe Island:
+
+```sh
+/Users/yoseph/TouchBar/scripts/btt_vibe_island_tap.sh
+```
+
+This helper runs `/usr/bin/open -a "Vibe Island"` and prints `OK:`, `NOOP:`, or `ERROR:` tokens. It supports `--dry-run` and `--self-test`.
+
+### Legacy tap actions (optional)
+
+Muxy:
 
 ```sh
 /Users/yoseph/TouchBar/scripts/btt_muxy_tap.sh
 ```
 
-This helper runs `/usr/bin/open -a Muxy` and prints `OK:`, `NOOP:`, or `ERROR:` tokens. It supports `--dry-run` and `--self-test`.
-
-### Multica widget tap action
-
-If you also have a Multica widget, assign its tap action with the Multica helper:
+Multica:
 
 ```sh
 /Users/yoseph/TouchBar/scripts/btt_multica_tap.sh
 ```
-
-This helper discovers the Multica app name (`MULTICA_APP_NAME` env override > `Multica` > `Multica Desktop`) and opens it with `/usr/bin/open`. It also supports `--dry-run` and `--self-test`.
 
 ### Diagnostic-only tap actions (not primary)
 
@@ -94,18 +93,21 @@ Run:
 python3 /Users/yoseph/TouchBar/scripts/agentmax_status.py --smoke --root /Users/yoseph/TouchBar
 python3 /Users/yoseph/TouchBar/scripts/agentmax_status.py --detail --root /Users/yoseph/TouchBar
 python3 /Users/yoseph/TouchBar/scripts/agentmax_status.py --debug --root /Users/yoseph/TouchBar
+/Users/yoseph/TouchBar/scripts/btt_vibe_island_tap.sh --self-test
 /Users/yoseph/TouchBar/scripts/btt_muxy_tap.sh --self-test
 /Users/yoseph/TouchBar/scripts/btt_multica_tap.sh --self-test
 ```
 
-The first command should print exactly one compact line beginning with `MUXY` when live muxy/tmux sessions are visible, otherwise `OMX`, for example:
+The first command should print exactly one compact line beginning with `VI` when Vibe Island has live sessions, otherwise `OMX` or legacy `MUXY`, for example:
 
 ```text
-MUXY C1 F0 O3 scorio
-OMX ◒ W1 I0 A1 now:touch wait:tmux
+VI Claude covers · Read
+VI ! Claude covers
+VI · 2 agents covers,agent
+OMX · W0 I7 B7 touch,tmux
 ```
 
-For `MUXY`, `C` means confirmation-needed panes, `F` means finished/successful panes, and `O` means still-live panes. The empty state is `MUXY C0 F0 O0 -` and failure is `MUXY !err`. For fallback `OMX`, `W` is working, `I` is idle/stale, `B` is blocking/stalled, `A` is non-blocking attention, `now:` is the current project, and `wait:` is an inferred wait/attention label.
+For `VI`, the collector reads Vibe Island's local `session-terminals.json`, shows the active agent/project, and uses `!` when a recent permission request is visible in the Vibe Island log. Failure is `VI !err`.
 
 The collector is read-only by default. It writes only if
 `config/status-protocol.json` explicitly enables optional snapshot logging.

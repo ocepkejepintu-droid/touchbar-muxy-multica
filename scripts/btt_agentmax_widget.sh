@@ -6,12 +6,12 @@ ROOT="/Users/yoseph/TouchBar"
 STATUS_SCRIPT="$ROOT/scripts/agentmax_status.py"
 
 if ! OUTPUT="$(python3 "$STATUS_SCRIPT" --compact --root "$ROOT" 2>/dev/null)"; then
-  printf '%s\n' 'MUXY !err'
+  printf '%s\n' 'VI !err'
   exit 0
 fi
 
 if [ -z "$OUTPUT" ]; then
-  printf '%s\n' 'MUXY !err'
+  printf '%s\n' 'VI !err'
   exit 0
 fi
 
