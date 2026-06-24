@@ -3,3 +3,7 @@ __pycache__/
 *.pyc
 .omx/
 .sisyphus/
+.kimchi/
+
+# Daemon temp write
+state.json.tmp
