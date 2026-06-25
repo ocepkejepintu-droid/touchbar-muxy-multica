@@ -295,13 +295,19 @@ def delete_existing_triggers(uuids: set[str]) -> int:
     return len(uuids)
 
 
-def refresh_widget(uuid: str, text: str) -> None:
+def refresh_widget(uuid: str) -> None:
+    """Tell BTT to refresh a widget by re-running its shell script.
+
+    We intentionally do NOT call `update_touch_bar_widget text` here.
+    Setting a static custom text via that API overrides the shell script
+    output, so the widget appears "stuck" on the install-time value
+    even though the daemon state changes every ~4 seconds and the
+    script produces fresh output every 2 seconds.
+    """
     run_btt_applescript_argv(
         uuid,
-        text,
         script="""on run argv
   tell application "BetterTouchTool"
-    update_touch_bar_widget (item 1 of argv) text (item 2 of argv)
     refresh_widget (item 1 of argv)
   end tell
 end run""",
@@ -669,7 +675,7 @@ def do_install(cleanup_legacy: bool = True) -> int:
     show_touch_bar()
 
     for key, item in widgets.items():
-        refresh_widget(item["uuid"], statuses[key])
+        refresh_widget(item["uuid"])
         time.sleep(0.2)
 
     subprocess.run(["killall", "ControlStrip"], check=False)
