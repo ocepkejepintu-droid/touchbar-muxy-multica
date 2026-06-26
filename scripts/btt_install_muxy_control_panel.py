@@ -502,7 +502,10 @@ def repair_offline(
 
 
 def slot_status(slot: str) -> str:
-    script = ROOT / f"scripts/btt_muxy_slot_{slot}.sh"
+    if slot == "summary":
+        script = ROOT / "scripts/btt_muxy_slot_summary.sh"
+    else:
+        script = ROOT / f"scripts/btt_muxy_slot_{slot.split('_')[-1]}.sh"
     proc = subprocess.run(["sh", str(script)], check=False, text=True, capture_output=True)
     return proc.stdout.strip().splitlines()[0] if proc.stdout.strip() else "·"
 
